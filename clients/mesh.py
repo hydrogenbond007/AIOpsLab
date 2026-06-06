@@ -578,10 +578,6 @@ def _make_signal(
         "pods": _pods_payload(facts, primary_component),
         "events": _event_payload(observation, facts, primary_component),
         "logs": _logs_payload(observation, facts, primary_component),
-        "log_summary": {
-            "error_signatures": error_signatures,
-            "error_count": len(error_signatures),
-        },
         "related_context": {
             "benchmark": "AIOpsLab",
             "problem_id": problem_id,
@@ -598,6 +594,7 @@ def _make_signal(
             "kubernetes_snapshot": observation[-30000:],
             "active_incidents": 1,
             "configuration_drift": bool(error_signatures and not facts.unhealthy_components),
+            "error_signatures": error_signatures,
         },
     }
 
