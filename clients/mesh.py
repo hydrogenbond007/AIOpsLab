@@ -390,6 +390,40 @@ def _candidate_order(result: dict[str, Any], facts: SnapshotFacts, problem_id: s
     return values
 
 
+# Observability / control-plane components are never the injected ORIGIN in
+# AIOpsLab (faults live in the application). Mirror the core triage down-rank:
+# never return one as the localization answer.
+_OBS_INFRA_TOKENS = (
+    "prometheus", "grafana", "jaeger", "loki", "tempo", "alertmanager",
+    "otel-collector", "otelcol", "opentelemetry", "node-exporter",
+    "kube-state-metrics", "elasticsearch", "kibana", "fluent", "promtail",
+    "blackbox-exporter", "pushgateway", "openebs",
+)
+
+
+def _is_obs_infra(text: str) -> bool:
+    low = (text or "").lower()
+    return any(tok in low for tok in _OBS_INFRA_TOKENS)
+
+
+def _mesh_detected_anomaly(result: dict[str, Any]) -> bool:
+    """True iff mesh's own investigation found a fault. Used for the
+    detection task so the answer reflects mesh reasoning rather than a
+    hardcoded 'Yes'."""
+    inv = result.get("investigation_report") if isinstance(result.get("investigation_report"), dict) else {}
+    if inv.get("fault_findings"):
+        return True
+    scope = inv.get("scope_assessment") if isinstance(inv.get("scope_assessment"), dict) else {}
+    sev = str(scope.get("overall_severity") or "").strip().lower()
+    if sev and sev not in ("info", "none", "healthy", ""):
+        return True
+    rca = result.get("rca_report") if isinstance(result.get("rca_report"), dict) else {}
+    likely = str(rca.get("likely_cause") or "").strip().lower()
+    if likely and likely not in ("unknown", "none", "no fault", "healthy", "no anomaly", "n/a"):
+        return True
+    return bool(inv.get("root_cause_candidates"))
+
+
 def _normalize_component(value: Any, facts: SnapshotFacts, problem_id: str) -> str | None:
     if value is None:
         return None
@@ -403,6 +437,8 @@ def _normalize_component(value: Any, facts: SnapshotFacts, problem_id: str) -> s
     if text in _synthetic_tokens(problem_id) or "aiopslab" in text or text.startswith("test-"):
         return None
     if text in {"radius", "selector", "endpoint", "endpoints", "container", "containers", "namespace"}:
+        return None
+    if _is_obs_infra(text):
         return None
     known = set(facts.known_components) | set(facts.unhealthy_components)
     if text in known:
@@ -844,7 +880,7 @@ class MeshAgent:
         facts = self.snapshot_facts or _parse_snapshot(self.snapshot_observation or "", _problem_namespace(self.problem_id, self.problem_desc))
 
         if self.task_kind == "detection":
-            has_anomaly = "No" if self.problem_id.startswith("noop_") else "Yes"
+            has_anomaly = "Yes" if _mesh_detected_anomaly(self.runtime_result or {}) else "No"
             action = _code(f"submit({_quote(has_anomaly)})")
             self._record_adapter_artifact(facts, action)
             return action
