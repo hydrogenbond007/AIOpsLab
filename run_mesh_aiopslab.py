@@ -82,6 +82,12 @@ DEFAULT_PROBLEMS = [
 ]
 
 
+# Per-problem wall-clock cap. A hung problem (app setup that never completes,
+# a probe with no timeout) would otherwise freeze the whole bench. On
+# timeout the problem is recorded failed and the loop continues.
+_PROBLEM_TIMEOUT = float(os.environ.get("MESH_AIOPSLAB_PROBLEM_TIMEOUT", "900"))
+
+
 async def run_one(problem_id: str, max_steps: int, results_dir: Path) -> dict[str, Any]:
     agent = MeshAgent()
     orch = Orchestrator(results_dir=results_dir)
@@ -121,7 +127,9 @@ async def main() -> None:
     for pid in problem_ids:
         print(f"######## AIOpsLab Mesh problem start: {pid} ########", flush=True)
         try:
-            row = await run_one(pid, args.max_steps, results_dir)
+            row = await asyncio.wait_for(
+                run_one(pid, args.max_steps, results_dir), timeout=_PROBLEM_TIMEOUT
+            )
             row["status"] = "completed"
         except Exception as exc:
             row = {"problem_id": pid, "status": "failed", "error": repr(exc), "traceback": traceback.format_exc()}
