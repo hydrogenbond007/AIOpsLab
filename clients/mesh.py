@@ -501,7 +501,6 @@ def _analysis_payload(problem_id: str, result: dict[str, Any], facts: SnapshotFa
     root_text = " ".join(
         str(x)
         for x in [
-            problem_id,
             problem_desc,
             facts.text[-6000:],
             rca.get("likely_cause") if isinstance(rca, dict) else "",
@@ -749,32 +748,11 @@ def _auth_miss_recovery_command() -> str:
 
 
 def _aiopslab_mitigation_command(problem_id: str, result: dict[str, Any], facts: SnapshotFacts) -> str | None:
-    family = _problem_family(problem_id).lower()
-    if family.startswith("misconfig_app_hotel_res"):
-        return "kubectl set image deployment/geo hotel-reserv-geo=yinfangchen/hotelreservation:latest -n test-hotel-reservation"
-    if family.startswith("revoke_auth_mongodb"):
-        return _hotel_mongo_script_command(problem_id, "revoke")
-    if family.startswith("user_unregistered_mongodb"):
-        return _hotel_mongo_script_command(problem_id, "remove")
-    if family.startswith("auth_miss_mongodb"):
-        return _auth_miss_recovery_command()
-    if family.startswith("k8s_target_port"):
-        patch = [{"op": "replace", "path": "/spec/ports/0/targetPort", "value": 9090}]
-        return f"kubectl patch service user-service -n test-social-network --type=json -p {_json_patch_arg(patch)}"
-    if family.startswith("scale_pod_zero"):
-        return "kubectl scale deployment/user-service --replicas=1 -n test-social-network"
-    if family.startswith("assign_to_non_existent_node"):
-        patch = [{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]
-        return (
-            f"kubectl patch deployment/user-service -n test-social-network --type=json -p {_json_patch_arg(patch)} || true; "
-            "kubectl rollout restart deployment/user-service -n test-social-network"
-        )
-    if family.startswith("wrong_bin_usage"):
-        patch = [{"op": "replace", "path": "/spec/template/spec/containers/0/command", "value": ["profile"]}]
-        return f"kubectl patch deployment/profile -n test-hotel-reservation --type=json -p {_json_patch_arg(patch)}"
-    if family.startswith("astronomy_shop_kafka_queue_problems"):
-        return _kafka_feature_flag_off_command()
-
+    # Honest mitigation: the command comes from mesh's decision /
+    # execution_plan (rollback / restart / scale), not a hardcoded
+    # per-family fix. If mesh doesn't map this fault to a concrete
+    # corrective command, we emit nothing and the task is recorded
+    # unmitigated -- a real measurement of what mesh can remediate.
     decision = result.get("decision") if isinstance(result.get("decision"), dict) else {}
     mitigation = _mesh_mitigation_command(decision) if _mesh_mitigation_command else None
     cmd = mitigation.get("cmd") if isinstance(mitigation, dict) else None
